@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { DEFAULT_STRATEGY, detectRiskFlags, diffSource, evaluateLot, hasStructureSignal, lotIdentity, refreshHealth, sourceSnapshot, type PublicLot } from "../src/domain";
+import { DEFAULT_STRATEGY, detectRiskFlags, diffSource, evaluateLot, hasStructureSignal, lotIdentity, recommendLot, refreshHealth, sourceSnapshot, type PublicLot } from "../src/domain";
 
 const lot: PublicLot = {
   key: "muskegon:1",
@@ -31,12 +31,37 @@ test("structure rules do not match ranch inside branch", () => {
   assert.equal(evaluateLot({ ...lot, comment: "Branch office notice" }, DEFAULT_STRATEGY).reasons.includes("structure signal"), false);
 });
 
+test("vacant lots do not become structure candidates because comments mention a former or neighboring house", () => {
+  assert.equal(hasStructureSignal("Property is a vacant lot. There used to be a house here but no longer is."), false);
+  assert.equal(hasStructureSignal("Vacant parcel maintained by the neighboring house."), false);
+  assert.equal(hasStructureSignal("Parcel has a cabin in decent overall condition."), true);
+});
+
+test("recommendations combine strategy fit, evidence completeness, and research gaps", () => {
+  const evaluated = evaluateLot({
+    ...lot,
+    category: "Structure",
+    comment: "Property is a single story home with a detached garage. The exterior appears maintained and the catalog provides a full description.",
+  }, { ...DEFAULT_STRATEGY, minScore: 20 });
+  const recommendation = recommendLot(evaluated);
+  assert.ok(recommendation.recommendationScore >= evaluated.dynamicScore);
+  assert.equal(recommendation.recommendationConfidence, "High");
+  assert.ok(recommendation.researchNeeded.some((item) => /Comparable sales/i.test(item)));
+});
+
 test("serious catalog risks are categorized", () => {
   const flags = detectRiskFlags("Roof collapsing, major leakage, visible mold and an occupied unsafe structure slated for demolition.");
   assert.ok(flags.some((flag) => flag.category === "Structural" && flag.severity === "critical"));
   assert.ok(flags.some((flag) => flag.category === "Structural" && flag.severity === "high"));
   assert.ok(flags.some((flag) => flag.category === "Occupancy"));
   assert.ok(flags.some((flag) => flag.category === "Demolition"));
+});
+
+test("occupancy clues, caving ceilings, and incomplete inspection are surfaced", () => {
+  const flags = detectRiskFlags("Lights on and cars in the driveway, so we could not examine it. Ceilings caving in from roof leakage.");
+  assert.ok(flags.some((flag) => flag.category === "Occupancy" && flag.severity === "high"));
+  assert.ok(flags.some((flag) => flag.category === "Structural" && flag.severity === "critical"));
+  assert.ok(flags.some((flag) => flag.category === "Condition"));
 });
 
 test("minor cents do not trigger a bid warning but material changes do", () => {

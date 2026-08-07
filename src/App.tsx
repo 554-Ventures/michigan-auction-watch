@@ -10,10 +10,12 @@ import {
   formatChicagoTimestamp,
   lotIdentity,
   money,
+  recommendLot,
   refreshHealth,
   sourceSnapshot,
   type EvaluatedLot,
   type PublicLot,
+  type RecommendedLot,
   type Strategy,
 } from "./domain";
 import {
@@ -28,7 +30,7 @@ import {
   type ResearchStage,
 } from "./storage";
 
-type View = "matches" | "changes" | "research" | "ready" | "all";
+type View = "recommended" | "matches" | "changes" | "research" | "ready" | "all";
 type SortKey = "status" | "score" | "property" | "county" | "category" | "risk" | "minimumBid" | "valueMultiple";
 type RefreshReport = {
   refreshedAt: string;
@@ -78,7 +80,7 @@ function displayChangeItem(item: string | { id?: string; key?: string; county?: 
 }
 
 export default function App() {
-  const [activeView, setActiveView] = useState<View>("matches");
+  const [activeView, setActiveView] = useState<View>("recommended");
   const [catalogQuery, setCatalogQuery] = useState("");
   const [catalogCounty, setCatalogCounty] = useState("All");
   const [catalogCategory, setCatalogCategory] = useState("All");
@@ -114,6 +116,15 @@ export default function App() {
     [strategy],
   );
   const candidates = evaluatedLots.filter((lot) => lot.passes);
+  const recommendations = useMemo(
+    () => evaluatedLots
+      .filter((lot) => lot.passes && !lot.riskFlags.some((flag) => flag.severity === "critical"))
+      .map(recommendLot)
+      .filter((lot) => lot.recommendationScore >= Math.max(60, strategy.minScore))
+      .sort((a, b) => b.recommendationScore - a.recommendationScore || b.dynamicScore - a.dynamicScore || a.minimumBid - b.minimumBid)
+      .slice(0, 10),
+    [evaluatedLots, strategy.minScore],
+  );
   const visibleLots = useMemo(
     () => evaluatedLots.filter((lot) =>
       (catalogCounty === "All" || lot.county === catalogCounty) &&
@@ -164,6 +175,7 @@ export default function App() {
   };
 
   const viewCopy: Record<View, [string, string]> = {
+    recommended: ["Start here", "Review the strongest current options, why they rank well, and what research is still missing."],
     matches: ["Start here", "Adjust criteria and promote promising matches into Research."],
     changes: ["Review changes", "Acknowledge source changes before relying on prior research."],
     research: ["Diligence workspace", "Complete each check and set a cap before Bid Ready becomes available."],
@@ -183,23 +195,27 @@ export default function App() {
     </section>
     <section className="metrics">
       <div><span>Live lots</span><b>{catalogData.lotCount}</b><small>{catalogData.sourceCount} active catalogs</small></div>
-      <div><span>Strategy matches</span><b>{candidates.length}</b><small>Based on saved criteria</small></div>
+      <div><span>Recommended</span><b>{recommendations.length}</b><small>Top researched-screen leads</small></div>
       <div><span>In research</span><b>{research.length - readyCount}</b><small>{unacknowledged} need source review</small></div>
       <div><span>Bid ready</span><b>{readyCount}</b><small>Passed manual gates</small></div>
     </section>
     <section className={`refreshStatus ${health.className}`}><div><span className="statusDot"/><b>Data {health.label.toLowerCase()}</b><small>Checksum {catalogData.checksum.slice(0, 8)} · failed refreshes never replace the last good snapshot</small></div><div><b>{refreshReport.added?.length ?? 0}</b><small>new</small><b>{refreshReport.removed?.length ?? 0}</b><small>removed</small><b>{refreshReport.fieldChanges?.length ?? refreshReport.bidChanges?.length ?? 0}</b><small>changed</small></div></section>
 
     <nav className="viewNav" aria-label="Auction workflow views">
-      <NavButton active={activeView === "matches"} number="1" label="Strategy Matches" detail={`${candidates.length} lots fit your criteria`} onClick={() => setActiveView("matches")}/>
-      <NavButton active={activeView === "changes"} number="2" label="Change Inbox" detail={`${changeCount + unacknowledged} source items to review`} onClick={() => setActiveView("changes")}/>
+      <NavButton active={activeView === "recommended"} number="1" label="Recommended" detail={`${recommendations.length} strongest current options`} onClick={() => setActiveView("recommended")}/>
+      <NavButton active={activeView === "matches"} number="2" label="Strategy Matches" detail={`${candidates.length} lots pass your criteria`} onClick={() => setActiveView("matches")}/>
       <NavButton active={activeView === "research"} number="3" label="Research" detail={`${research.length - readyCount} properties under review`} onClick={() => setActiveView("research")}/>
       <NavButton active={activeView === "ready"} number="4" label="Bid Ready" detail={`${readyCount} passed the gate`} onClick={() => setActiveView("ready")}/>
-      <NavButton active={activeView === "all"} number="5" label="All Live Lots" detail={`${catalogData.lotCount} source records`} onClick={() => setActiveView("all")}/>
+      <NavButton active={activeView === "changes"} number="5" label="Change Inbox" detail={`${changeCount + unacknowledged} source items`} onClick={() => setActiveView("changes")}/>
+      <NavButton active={activeView === "all"} number="6" label="All Live Lots" detail={`${catalogData.lotCount} source records`} onClick={() => setActiveView("all")}/>
     </nav>
     <div className="workflowNote"><b>{viewCopy[activeView][0]}</b><span>{viewCopy[activeView][1]}</span></div>
 
-    {activeView === "matches" && <>
+    {(activeView === "recommended" || activeView === "matches") && <>
       <StrategyPanel strategy={strategy} setStrategy={setStrategy} setNumber={setNumber} toggleList={toggleList} countyOptions={countyOptions} categoryOptions={categoryOptions} open={strategyOpen} setOpen={setStrategyOpen} matchCount={candidates.length}/>
+      {activeView === "recommended" && <RecommendationSection rows={recommendations} researchKeys={researchKeys} onAdd={addToResearch}/>} 
+    </>}
+    {activeView === "matches" && <>
       <CatalogSection eyebrow="Generated from your strategy" title="Strategy matches" description="Only lots that pass every active criterion appear here. These are research leads, not bid recommendations." rows={visibleLots.filter((lot) => lot.passes)} total={candidates.length} query={catalogQuery} setQuery={setCatalogQuery} county={catalogCounty} setCounty={setCatalogCounty} category={catalogCategory} setCategory={setCatalogCategory} counties={counties} categories={categoryOptions} researchKeys={researchKeys} onAdd={addToResearch} minScore={strategy.minScore}/>
     </>}
     {activeView === "changes" && <ChangeInbox report={refreshReport} records={research} liveById={liveById} threshold={strategy.bidChangeThreshold} update={updateResearch}/>} 
@@ -243,6 +259,35 @@ function StrategyPanel({ strategy, setStrategy, setNumber, toggleList, countyOpt
 
 function Criterion({ label, value, note, children }: { label: string; value: string; note?: string; children: React.ReactNode }) {
   return <div className="criterion"><label>{label} <b>{value}</b></label>{children}{note && <small>{note}</small>}</div>;
+}
+
+function researchLinks(lot: RecommendedLot) {
+  const location = lot.latitude && lot.longitude ? `${lot.latitude},${lot.longitude}` : `${lot.address}, ${lot.county} County, Michigan`;
+  const search = (query: string) => `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+  return {
+    map: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(location)}`,
+    address: search(`"${lot.address}" ${lot.county} Michigan property`),
+    parcel: search(`${lot.county} County Michigan parcel "${lot.parcelId}"`),
+    comps: search(`"${lot.address}" Michigan sold real estate comparable`),
+  };
+}
+
+function RecommendationSection({ rows, researchKeys, onAdd }: { rows: RecommendedLot[]; researchKeys: Set<string>; onAdd: (lot: EvaluatedLot) => void }) {
+  return <section className="recommendations"><div className="sectionHead"><div><span className="eyebrow">Ranked decision shortlist</span><h2>Recommended properties</h2><p>These are the strongest current leads after strategy fit, catalog evidence, data completeness, and risk language are combined. Open a research brief before promoting one.</p></div><div className="recommendationLegend"><span><i className="legendDot top"/>Top pick</span><span><i className="legendDot strong"/>Strong candidate</span><span><i className="legendDot next"/>Research next</span></div></div>
+    <div className="recommendationNotice"><b>Preliminary, not bid-ready.</b><span>The app has screened the catalog and organized the known evidence. Title, condition, value, access, occupancy, and local obligations still require verification.</span></div>
+    {rows.length ? <div className="recommendationGrid">{rows.map((lot, index) => <RecommendationCard key={lot.identity} lot={lot} rank={index + 1} inResearch={researchKeys.has(lot.identity)} onAdd={onAdd}/>)}</div> : <div className="emptyQueue"><b>No property currently clears the recommendation threshold.</b><p>Broaden the strategy to see more matches, but do not lower standards solely to fill the list.</p></div>}
+  </section>;
+}
+
+function RecommendationCard({ lot, rank, inResearch, onAdd }: { lot: RecommendedLot; rank: number; inResearch: boolean; onAdd: (lot: EvaluatedLot) => void }) {
+  const links = researchLinks(lot);
+  return <article className="recommendationCard"><div className="recommendationCardHead"><span className="recommendationRank">#{rank}</span><div><span className={`recommendationTier ${lot.recommendationTier.toLowerCase().replace(/\s/g, "-")}`}>{lot.recommendationTier}</span><span className={`confidence ${lot.recommendationConfidence.toLowerCase()}`}>{lot.recommendationConfidence} evidence confidence</span></div><div className="recommendationScore"><b>{lot.recommendationScore}</b><small>recommendation</small></div></div>
+    <h3><a href={lot.propertyUrl} target="_blank" rel="noreferrer">{lot.address || "Address not listed"} ↗</a></h3><p className="recommendationLocation">{lot.county} County · Lot {lot.lot} · {lot.category}</p>
+    <div className="recommendationFacts"><div><span>Opening bid</span><b>{money(lot.minimumBid)}</b></div><div><span>Value proxy</span><b>{lot.valueMultiple ? `${lot.valueMultiple.toFixed(1)}×` : "Unknown"}</b></div><div><span>SEV</span><b>{lot.sev ? money(lot.sev) : "Unknown"}</b></div><div><span>Catalog risk</span><b>{lot.risk}</b></div></div>
+    <div className="recommendationEvidence"><div><h4>Why it ranks</h4><ul>{lot.strengths.map((item) => <li key={item}>{item}</li>)}</ul></div><div className="cautions"><h4>What could change the decision</h4><ul>{lot.cautions.map((item) => <li key={item}>{item}</li>)}</ul></div></div>
+    <details className="researchBrief"><summary>Open research brief</summary><div className="researchBriefBody"><div><h4>Source description</h4><p>{lot.comment || "No catalog description was provided."}</p></div><div><h4>Research still required</h4><ul>{lot.researchNeeded.map((item) => <li key={item}>{item}</li>)}</ul></div><div className="researchLinks"><a href={lot.propertyUrl} target="_blank" rel="noreferrer">Auction page ↗</a><a href={links.map} target="_blank" rel="noreferrer">Map / satellite ↗</a><a href={links.parcel} target="_blank" rel="noreferrer">Parcel records ↗</a><a href={links.comps} target="_blank" rel="noreferrer">Comparable sales ↗</a><a href={links.address} target="_blank" rel="noreferrer">Address research ↗</a></div></div></details>
+    <div className="recommendationFooter"><span>Fit score {lot.dynamicScore} · Parcel {lot.parcelId || "not provided"}</span><button className="promoteButton" disabled={inResearch} onClick={() => onAdd(lot)}>{inResearch ? "In research" : "Add to Research"}</button></div>
+  </article>;
 }
 
 function CatalogSection(props: {

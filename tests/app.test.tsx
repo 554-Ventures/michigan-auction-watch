@@ -25,6 +25,10 @@ test("strategy changes recalculate visible matches and a lot can enter Research"
   const view = render(React.createElement(App));
 
   await waitFor(() => assert.match(view.getByText(/live lots match/i).textContent ?? "", /^\d+/));
+  assert.ok(view.getByRole("heading", { name: "Recommended properties" }));
+  const recommendationBriefs = view.getAllByText("Open research brief");
+  assert.ok(recommendationBriefs.length > 0 && recommendationBriefs.length <= 10);
+  assert.ok(view.getAllByRole("link", { name: "Parcel records ↗" }).length > 0);
   const before = view.getByText(/live lots match/i).textContent;
   const maxBidSlider = view.getAllByRole("slider")[0];
   fireEvent.change(maxBidSlider, { target: { value: "1000" } });

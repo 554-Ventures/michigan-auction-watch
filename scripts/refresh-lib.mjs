@@ -1,5 +1,13 @@
 const structurePattern = /\b(?:house|home|cottage|garage|building|ranch|residence|duplex|triplex|cabin|dwelling|barn)\b/i;
 const waterPattern = /\b(?:waterfront|lakefront|riverfront|lake frontage)\b/i;
+const vacantLeadPattern = /^(?:property\s+is\s+)?(?:an?\s+)?vacant\s+(?:parcel|lot|land)\b/i;
+const affirmativeStructurePattern = /\b(?:property|parcel|site)\s+(?:is|has|contains|includes)\s+(?:an?\s+)?(?:older\s+|modern\s+|single[- ]story\s+|two[- ]story\s+|wood[- ]frame\s+|brick[- ]built\s+|residential\s+)*(?:house|home|cottage|garage|building|ranch|residence|duplex|triplex|cabin|dwelling|barn)\b|\b(?:house|home|cottage|garage|building|ranch|residence|duplex|triplex|cabin|dwelling|barn)\s+(?:is|sits|has|appears|looks)\b/i;
+
+const hasStructure = (text) => {
+  const normalized = String(text ?? "").trim();
+  if (vacantLeadPattern.test(normalized) && !affirmativeStructurePattern.test(normalized)) return false;
+  return structurePattern.test(normalized);
+};
 
 export function parseCsv(text) {
   const rows = [];
@@ -60,7 +68,7 @@ export const toNumber = (value) => Number(String(value ?? "").replace(/[$,]/g, "
 const cleanCoord = (value) => toNumber(String(value ?? "").replace(/^[A-Za-z]/, ""));
 
 export function classifyProperty(comment) {
-  if (structurePattern.test(comment)) return "Structure";
+  if (hasStructure(comment)) return "Structure";
   if (waterPattern.test(comment)) return "Waterfront";
   if (/\bacres?\b/i.test(comment)) return "Land";
   return "Vacant lot";
@@ -69,7 +77,7 @@ export function classifyProperty(comment) {
 export function baseScreenScore(row) {
   const text = `${row["Comment 2"] ?? ""} ${row.Address ?? ""}`;
   let score = 50;
-  if (structurePattern.test(text)) score += 22;
+  if (hasStructure(row["Comment 2"] ?? "")) score += 22;
   if (waterPattern.test(text) || /\bnear\s+(?:the\s+)?[a-z ]*lake\b/i.test(text)) score += 15;
   if (/\bno\s+(?:known\s+)?(?:legal\s+|physical\s+)?access\b|\blandlocked\b|\bcontaminat(?:ed|ion)\b/i.test(text)) score -= 35;
   if (/\boccupied\b|\bdemolition\b|\bcondemn(?:ed|ation)?\b|\bcollaps(?:e|ed|ing)\b/i.test(text)) score -= 22;

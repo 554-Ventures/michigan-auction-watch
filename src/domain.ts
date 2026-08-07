@@ -7,7 +7,8 @@ export type RiskCategory =
   | "Utilities"
   | "Buildability"
   | "Demolition"
-  | "Site cleanup";
+  | "Site cleanup"
+  | "Condition";
 
 export type RiskFlag = {
   category: RiskCategory;
@@ -63,6 +64,18 @@ export type EvaluatedLot = PublicLot & {
   reasons: string[];
 };
 
+export type RecommendationTier = "Top pick" | "Strong candidate" | "Research next";
+export type RecommendationConfidence = "High" | "Medium" | "Low";
+
+export type RecommendedLot = EvaluatedLot & {
+  recommendationScore: number;
+  recommendationTier: RecommendationTier;
+  recommendationConfidence: RecommendationConfidence;
+  strengths: string[];
+  cautions: string[];
+  researchNeeded: string[];
+};
+
 export type SourceSnapshot = Pick<
   PublicLot,
   | "county"
@@ -112,13 +125,15 @@ export const COUNTY_DRIVE_HOURS: Record<string, number> = {
 
 const structurePattern = /\b(?:house|home|cottage|garage|building|ranch|residence|duplex|triplex|cabin|dwelling|barn)\b/i;
 const waterPattern = /\b(?:waterfront|lakefront|riverfront|lake frontage)\b|\bnear\s+(?:the\s+)?[a-z ]*lake\b/i;
+const vacantLeadPattern = /^(?:property\s+is\s+)?(?:an?\s+)?vacant\s+(?:parcel|lot|land)\b/i;
+const affirmativeStructurePattern = /\b(?:property|parcel|site)\s+(?:is|has|contains|includes)\s+(?:an?\s+)?(?:older\s+|modern\s+|single[- ]story\s+|two[- ]story\s+|wood[- ]frame\s+|brick[- ]built\s+|residential\s+)*(?:house|home|cottage|garage|building|ranch|residence|duplex|triplex|cabin|dwelling|barn)\b|\b(?:house|home|cottage|garage|building|ranch|residence|duplex|triplex|cabin|dwelling|barn)\s+(?:is|sits|has|appears|looks)\b/i;
 
 const riskRules: Array<{ category: RiskCategory; severity: RiskSeverity; label: string; pattern: RegExp }> = [
   { category: "Access / title", severity: "critical", label: "No known legal or physical access", pattern: /\bno\s+(?:known\s+)?(?:legal\s+|physical\s+)?access\b|\blandlocked\b/i },
-  { category: "Access / title", severity: "review", label: "Easement or title condition", pattern: /\beasement\b|\btitle\s+(?:issue|condition|exception)\b/i },
-  { category: "Occupancy", severity: "high", label: "Occupied or possession risk", pattern: /\boccupied\b|\btenant\b|\bpossession\b|\bsquatter\b/i },
-  { category: "Structural", severity: "critical", label: "Collapse, fire, or major structural failure", pattern: /\b(?:roof\s+)?collaps(?:e|ed|ing)\b|\bstructural\s+(?:problem|damage|failure)s?\b|\bfoundation\s+(?:failure|collapse|damage)\b|\bfire[- ]damaged?\b/i },
-  { category: "Structural", severity: "high", label: "Major condition or water-intrusion concern", pattern: /\bmold\b|\bmajor\s+(?:roof\s+)?leak(?:age|ing|s)?\b|\bwater\s+damage\b|\bdilapidated\b|\bpoorly\s+maintained\b|\bconsiderable\s+work\b/i },
+  { category: "Access / title", severity: "review", label: "Easement, title, or road-access condition", pattern: /\beasement\b|\btitle\s+(?:issue|condition|exception)\b|\b(?:road|street).{0,45}\b(?:not maintained|unmaintained|rutted|muddy)\b/i },
+  { category: "Occupancy", severity: "high", label: "Occupied or possession risk", pattern: /\boccupied\b|\btenant\b|\bpossession\b|\bsquatter\b|\bappears?\s+(?:to\s+be\s+)?occupied\b|\blights?\s+on\b.{0,80}\bcars?\s+in\s+(?:the\s+)?driveway\b/i },
+  { category: "Structural", severity: "critical", label: "Collapse, fire, or major structural failure", pattern: /\b(?:roof\s+)?collaps(?:e|ed|ing)\b|\bceilings?\s+cav(?:e|ed|ing)\s+in\b|\bstructural\s+(?:problem|damage|failure)s?\b|\bfoundation\s+(?:failure|collapse|damage)\b|\bfire[- ]damaged?\b/i },
+  { category: "Structural", severity: "high", label: "Major condition or water-intrusion concern", pattern: /\bmold\b|\b(?:major\s+)?(?:roof\s+)?leak(?:age|ing|s)?\b|\bwater\s+damage\b|\bdilapidated\b|\bpoorly\s+maintained\b|\bconsiderable\s+work\b|\bshingles?\s+(?:are\s+)?coming\s+loose\b/i },
   { category: "Environmental", severity: "critical", label: "Potential contamination", pattern: /\bcontaminat(?:ed|ion)\b|\bbrownfield\b|\bhazardous\s+(?:material|waste)s?\b/i },
   { category: "Environmental", severity: "high", label: "Environmental inspection indicated", pattern: /\basbestos\b|\bunderground\s+(?:storage\s+)?tank\b/i },
   { category: "Utilities", severity: "review", label: "Private or uncertain utilities", pattern: /\bseptic\b|\bwell\b|\bno\s+utilities\b|\butilities\s+unknown\b/i },
@@ -126,6 +141,7 @@ const riskRules: Array<{ category: RiskCategory; severity: RiskSeverity; label: 
   { category: "Buildability", severity: "high", label: "Buildability or zoning constraint", pattern: /\bwetland\b|\bdeed\s+restriction\b|\bsetback\b|\bbuildability\b|\bzoning\s+(?:issue|restriction|approval)\b/i },
   { category: "Demolition", severity: "critical", label: "Condemnation or demolition risk", pattern: /\bcondemn(?:ed|ation)?\b|\bdemolition\b|\bunsafe\s+structure\b/i },
   { category: "Site cleanup", severity: "review", label: "Debris or personal property remains", pattern: /\bdebris\b|\bpersonal\s+property\b|\bclean[- ]?out\b/i },
+  { category: "Condition", severity: "review", label: "Interior or full condition could not be inspected", pattern: /\bcould\s+not\s+(?:examine|inspect)\b|\bcouldn['’]?t\s+(?:examine|inspect|get\s+a\s+(?:good\s+)?look)\b|\b(?:inside|interior)\s+(?:was\s+)?(?:not\s+)?accessible\b|\blocked\s+up\s+tight\b/i },
 ];
 
 export const money = (value: number, cents = false) =>
@@ -144,7 +160,9 @@ export function lotIdentity(lot: Pick<PublicLot, "id" | "propertyId" | "property
 }
 
 export function hasStructureSignal(text: string): boolean {
-  return structurePattern.test(text);
+  const normalized = text.trim();
+  if (vacantLeadPattern.test(normalized) && !affirmativeStructurePattern.test(normalized)) return false;
+  return structurePattern.test(normalized);
 }
 
 export function detectRiskFlags(text: string): RiskFlag[] {
@@ -169,7 +187,7 @@ export function evaluateLot(lot: PublicLot, strategy: Strategy): EvaluatedLot {
     score += strategy.waterfrontWeight;
     reasons.push("water or lake signal");
   }
-  if (hasStructureSignal(text)) {
+  if (hasStructureSignal(lot.comment)) {
     score += strategy.structureWeight;
     reasons.push("structure signal");
   }
@@ -206,6 +224,61 @@ export function evaluateLot(lot: PublicLot, strategy: Strategy): EvaluatedLot {
     risk: hasCritical || hasHigh ? "High" : hasReview ? "Review" : "Lower",
     riskFlags,
     reasons,
+  };
+}
+
+export function recommendLot(lot: EvaluatedLot): RecommendedLot {
+  let confidencePoints = 0;
+  if (lot.address && !/not listed/i.test(lot.address)) confidencePoints += 18;
+  if (lot.parcelId) confidencePoints += 18;
+  if (lot.sev > 0) confidencePoints += 22;
+  if (lot.comment.trim().length >= 120) confidencePoints += 20;
+  if (lot.latitude && lot.longitude) confidencePoints += 12;
+  if (/\/lot\/show\/id\/\d+$/.test(lot.propertyUrl)) confidencePoints += 10;
+
+  const hasCritical = lot.riskFlags.some((flag) => flag.severity === "critical");
+  const hasHigh = lot.riskFlags.some((flag) => flag.severity === "high");
+  if (hasCritical) confidencePoints -= 35;
+  else if (hasHigh) confidencePoints -= 18;
+
+  const recommendationConfidence: RecommendationConfidence = confidencePoints >= 82
+    ? "High"
+    : confidencePoints >= 58
+      ? "Medium"
+      : "Low";
+  const riskPenalty = hasCritical ? 22 : hasHigh ? 10 : lot.risk === "Review" ? 4 : 0;
+  const confidenceAdjustment = recommendationConfidence === "High" ? 5 : recommendationConfidence === "Low" ? -7 : 0;
+  const recommendationScore = clamp(lot.dynamicScore + confidenceAdjustment - riskPenalty);
+  const recommendationTier: RecommendationTier = recommendationScore >= 82 && !hasHigh && !hasCritical
+    ? "Top pick"
+    : recommendationScore >= 70 && !hasCritical
+      ? "Strong candidate"
+      : "Research next";
+
+  const strengths = [...lot.reasons];
+  if (lot.sev > 0) strengths.push("SEV available for a preliminary value check");
+  if (lot.parcelId) strengths.push("parcel identity available");
+
+  const cautions = lot.riskFlags.length
+    ? lot.riskFlags.map((flag) => flag.label)
+    : ["No severe risk language found in the catalog text"];
+  const researchNeeded = [
+    "Title, liens, and post-sale obligations",
+    "Exact condition, occupancy, and possession",
+  ];
+  if (lot.category === "Vacant lot" || lot.category === "Land") researchNeeded.push("Zoning, legal access, utilities, and buildability");
+  else researchNeeded.push("Repair scope, utilities, and code status");
+  if (lot.sev <= 0) researchNeeded.push("Independent value evidence; SEV is unavailable");
+  else researchNeeded.push("Comparable sales and a defensible as-is value");
+
+  return {
+    ...lot,
+    recommendationScore,
+    recommendationTier,
+    recommendationConfidence,
+    strengths: strengths.slice(0, 4),
+    cautions: Array.from(new Set(cautions)).slice(0, 3),
+    researchNeeded: Array.from(new Set(researchNeeded)),
   };
 }
 
