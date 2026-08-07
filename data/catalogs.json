@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 2,
+  "countyAllowlist": [
+    "Manistee",
+    "Mason",
+    "Muskegon",
+    "Oceana",
+    "Ottawa"
+  ],
+  "bidChangeMaterialityDollars": 25,
+  "activeCatalogs": [
+    {
+      "county": "Manistee",
+      "catalogId": "2872"
+    },
+    {
+      "county": "Mason",
+      "catalogId": "2876"
+    },
+    {
+      "county": "Muskegon",
+      "catalogId": "2883"
+    },
+    {
+      "county": "Oceana",
+      "catalogId": "2885"
+    },
+    {
+      "county": "Ottawa",
+      "catalogId": "2891"
+    }
+  ],
+  "discoveredAt": "2026-08-07T22:13:15.699Z"
+}
